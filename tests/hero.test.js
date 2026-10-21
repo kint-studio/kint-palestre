@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {startHero} from '../assets/palestre/hero.js';
 import {DumbbellScene,FORMATION_DONE_MS} from '../assets/palestre/dumbbell-scene.js';
-// Adattato da tests/hero.test.js della ristoranti (25d83c1): senza forchetta 3D, con il manubrio che gira solo verso il mouse.
+// Adattato da tests/hero.test.js della landing gemella in kint-studio (25d83c1): senza oggetto 3D su GPU, con il manubrio che gira solo verso il mouse.
 // Un finto contesto 2D: ogni metodo non fa nulla, le letture di pixel restituiscono pixel vuoti.
 const pixels=(...a)=>({data:new Uint8ClampedArray(Math.max(1,(a.at(-2)|0)*(a.at(-1)|0))*4)});
 function context(){const own={getImageData:pixels,createImageData:pixels,getTransform:()=>({a:1}),measureText:()=>({width:5})};
@@ -105,3 +105,13 @@ test('decoded: un errore di caricamento rifiuta',async()=>{
  globalThis.Image=class{decode(){return Promise.resolve();}set src(v){setTimeout(()=>this.onerror(new Error('404')),0);}};
  try{await assert.rejects(decoded('/x.webp'));}finally{globalThis.Image=saved;}
 });
+// Dove il browser può, l'immagine diventa un ImageBitmap già decodificato; se createImageBitmap fallisce resta l'<img>.
+const withImageBitmap=async(create,fn)=>{const saved={Image:globalThis.Image,createImageBitmap:globalThis.createImageBitmap};
+ globalThis.Image=class{decode(){return Promise.resolve();}set src(v){this._src=v;setTimeout(()=>this.onload(),0);}};globalThis.createImageBitmap=create;
+ try{await fn();}finally{Object.assign(globalThis,saved);}};
+test('decoded: con createImageBitmap restituisce il bitmap',()=>withImageBitmap(async image=>({bitmap:true,from:image}),async()=>{
+ const {decoded}=await import('../assets/palestre/hero.js');const out=await decoded('/x.webp');
+ assert.equal(out.bitmap,true);assert.equal(out.from._src,'/x.webp');}));
+test('decoded: se createImageBitmap rifiuta restituisce l\'<img>',()=>withImageBitmap(()=>Promise.reject(new Error('no')),async()=>{
+ const {decoded}=await import('../assets/palestre/hero.js');const out=await decoded('/x.webp');
+ assert.equal(out._src,'/x.webp');assert.equal(out.bitmap,undefined);}));

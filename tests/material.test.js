@@ -14,3 +14,16 @@ test('loadMaterial: con il segnale interrotto il worker termina e la promessa ri
  const controller=new AbortController();
  const p=loadMaterial('/m.webp',{workerUrl:'w.js',load:()=>Promise.reject(new Error('no')),make:()=>({}),satin:true,signal:controller.signal});
  controller.abort();await assert.rejects(p);assert.equal(workers[0].terminated,true);}));
+// Senza worker il materiale si calcola a fette nei tempi morti: dopo stop() (signal interrotto) nessuna fetta si calcola né si programma.
+test('loadMaterial senza worker: con il segnale interrotto le fette si fermano',async()=>{
+ const saved={Worker:globalThis.Worker,requestIdleCallback:globalThis.requestIdleCallback},queued=[];let made=0;
+ globalThis.Worker=undefined;globalThis.requestIdleCallback=fn=>{queued.push(fn);};
+ try{const controller=new AbortController();
+  const p=loadMaterial('/m.webp',{workerUrl:'w.js',load:async()=>({width:4,height:4}),make:()=>{made++;return {};},signal:controller.signal});
+  p.catch(()=>{});
+  for(let i=0;i<5&&!queued.length;i++)await new Promise(r=>setTimeout(r,0));
+  assert.equal(queued.length,1,'la prima fetta è programmata');
+  controller.abort();queued[0]({timeRemaining:()=>10});
+  await assert.rejects(p);assert.equal(made,0,'nessuna fetta calcolata dopo stop()');assert.equal(queued.length,1,'nessuna fetta programmata dopo stop()');
+ }finally{Object.assign(globalThis,saved);}
+});

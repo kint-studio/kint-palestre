@@ -1,5 +1,5 @@
 import {IdleCursor} from '../idle-cursor.js?v=36';
-import {loadMaterial as loadSatinMaterial} from './material.js?v=p3-1';
+import {loadMaterial as loadSatinMaterial} from './material.js?v=p4-1';
 import {DumbbellScene,FORMATION_DONE_MS,layout,imageUrl} from './dumbbell-scene.js?v=p3-1';
 // Resolves on load, then waits for decode() for at most 500 ms: in a hidden tab decode() may never settle.
 // Then, where the browser can, the image becomes an ImageBitmap that stays decoded: an <img> is decoded again on the main thread each time a canvas draws it at a new size (two decodes of 10 ms, unthrottled, while the scene starts).
@@ -43,7 +43,7 @@ export function startHero(root,{matchMedia=q=>globalThis.matchMedia(q),Intersect
   if(!alive)return null;
   engine=new Engine({canvas,createCanvas,base,width:size.width,height:size.height,dpr:ratio(),reduced,touch});
   // The material under the reveal is computed in a worker, so the page never blocks; the dumbbell stays satin silver there too.
-  loadMaterial(imageUrl('kintsugi',rectWidth,media),{workerUrl:new URL('./material-worker.js?v=p3-1',import.meta.url),load:loadImage,make:createCanvas,satin:true,signal:stopped.signal}).then(tech=>{if(alive&&tech)engine.setTech(tech);},()=>{});
+  loadMaterial(imageUrl('kintsugi',rectWidth,media),{workerUrl:new URL('./material-worker.js?v=p4-1',import.meta.url),load:loadImage,make:createCanvas,satin:true,signal:stopped.signal}).then(tech=>{if(alive&&tech)engine.setTech(tech);},()=>{});
   // Every real gesture stops the idle cursor.
   const cancelIdle=()=>{if(idle.activity()&&engine.flow){engine.flow.pointer=null;engine.flow.old=null;}};
   const pointer=e=>{if(!engine.done||e.target?.closest?.('a,button,input,textarea,summary'))return;keepActive();const r=root.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)return;

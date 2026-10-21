@@ -51,7 +51,7 @@ test('build: linkWorkers collega i worker richiamati, salta gli altri e fallisce
  const bundle=async f=>`worker(${f.split(/[\\/]/).pop()})`;
  const none=await linkWorkers('console.log(1)',{names:['material-worker'],dir:'x',exists:()=>true,bundle});
  assert.equal(none.js,'console.log(1)');assert.deepEqual(none.files,[]);
- const js='new URL("./material-worker.js?v=p3-1",import.meta.url)';
+ const js='new URL("./material-worker.js?v=p4-1",import.meta.url)';
  const one=await linkWorkers(js,{names:['material-worker'],dir:'x',exists:()=>true,bundle});
  assert.equal(one.files.length,1);assert.match(one.files[0].name,/^material-worker\.[0-9a-f]{10}\.js$/);assert.equal(one.files[0].code,'worker(material-worker.js)');
  assert.equal(one.js,`new URL("./${one.files[0].name}",import.meta.url)`);
