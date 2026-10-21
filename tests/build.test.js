@@ -39,6 +39,17 @@ test('build: ogni immagine del manubrio, anche quella con percorso a template, �
  for(const f of readdirSync(join(root,'assets/palestre')).filter(f=>f.endsWith('.webp')))assert.ok(existsSync(join(out,'assets/palestre',f)),f);
  for(const m of bundle.matchAll(/\/assets\/[\w./-]+\.(?:webp|woff2|jpg)/g))assert.ok(existsSync(join(out,m[0])),m[0]);
 }));
+// Nel dist finiscono solo le immagini del manubrio che la pagina può chiedere: imageUrl su tutte le finestre e risoluzioni plausibili, più il preload.
+test('build: nel dist solo le immagini manubrio-* referenziate',async()=>{
+ const {layout,imageUrl}=await import('../assets/palestre/dumbbell-scene.js');
+ const used=new Set();
+ for(let w=320;w<=3840;w+=40)for(let h=480;h<=2160;h+=40)for(const touch of [false,true])for(const dpr of [1,1.25,1.5,2,2.625,3])for(const kind of ['ceramic','kintsugi'])used.add(imageUrl(kind,layout(w,h).w,{touch,dpr}).replace(/^\//,''));
+ for(const m of readFileSync(join(root,'palestre/index.html'),'utf8').matchAll(/href="\/(assets\/palestre\/manubrio-[^"]+)"/g))used.add(m[1]);
+ await withBuild(out=>{
+  const published=readdirSync(join(out,'assets/palestre')).filter(f=>f.startsWith('manubrio-')).map(f=>'assets/palestre/'+f).sort();
+  assert.deepEqual(published,[...used].sort(),'immagini manubrio-* nel dist = quelle referenziate');
+ });
+});
 test('build: il worker del materiale è un bundle a parte con hash e il bundle lo richiama per nome',()=>withBuild((out,r)=>{
  const bundle=read(out,r.js);
  for(const name of ['material-worker']){const m=bundle.match(new RegExp('new URL\\("\\./('+name+'\\.[0-9a-f]{10}\\.js)"'));
