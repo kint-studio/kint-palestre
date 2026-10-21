@@ -28,6 +28,8 @@ export function startHero(root,{matchMedia=q=>globalThis.matchMedia(q),Intersect
   lastDraw=time;engine.frame(time,0);};
  const resume=()=>{if(alive&&engine&&!running&&visible&&pageVisible){running=true;last=0;raf(frame);}};
  const fail=()=>{root.hidden=true;canvas.hidden=true;return null;};
+ // The first canvas the page draws on costs 10-30 ms on a cold start (the browser sets up its canvas machinery on first use, not when the context is created). A throwaway canvas pays it now, in a task of its own while the image loads, so it does not add up with the construction of the scene into one long task. Nothing visible is drawn.
+ setTimeout(()=>{if(alive)try{createCanvas().getContext('2d').setTransform(1,0,0,1,0,0);}catch{}},0);
  // The hero is never measured while the module runs (that would force a layout of the page inside the script): its size comes from the ResizeObserver, which reports it after the browser's own layout; the same observer resizes the scene later.
  const measured=new Promise(resolve=>{sized=resolve;});
  const ro=new ResizeObserver(entries=>{const {width,height}=entries[entries.length-1].contentRect;size={width,height};sized(size);

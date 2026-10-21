@@ -10,7 +10,7 @@ function context(){const own={getImageData:pixels,createImageData:pixels,getTran
 const canvas=()=>{const ctx=context();return {width:300,height:150,hidden:false,style:{},getContext:type=>type==='2d'?ctx:null};};
 const events=()=>{const map=new Map();return {map,addEventListener:(t,f)=>map.set(t,[...(map.get(t)||[]),f]),removeEventListener:(t,f)=>map.set(t,(map.get(t)||[]).filter(g=>g!==f)),emit:(t,e)=>(map.get(t)||[]).forEach(f=>f(e)),count:()=>[...map.values()].reduce((n,l)=>n+l.length,0)};};
 const flush=()=>new Promise(r=>setTimeout(r,0));
-function setup({reduced=false,touch=false,hidden=false,loadImage,size={width:1440,height:900}}={}){
+function setup({reduced=false,touch=false,hidden=false,loadImage,make,size={width:1440,height:900}}={}){
  const view=canvas(),ring={style:{}},section=events();
  const root={...events(),parentElement:section,querySelector:s=>s==='canvas'?view:s==='.kf-cursor'?ring:null,
   getBoundingClientRect:()=>{measures.n++;return {left:0,top:0,right:size.width,bottom:size.height,width:size.width,height:size.height};}};
@@ -28,7 +28,7 @@ function setup({reduced=false,touch=false,hidden=false,loadImage,size={width:144
  const hero=startHero(root,{
   matchMedia:q=>({matches:(q.includes('reduce')&&reduced)||(q.includes('hover: none')&&touch)}),
   IntersectionObserver:IO,ResizeObserver:RO,document:doc,window:win,dpr:1,raf,now:()=>clock,Engine,
-  loadImage:loadImage||(async url=>{images.push(url);return {width:1024,height:1536};}),createCanvas:canvas,
+  loadImage:loadImage||(async url=>{images.push(url);return {width:1024,height:1536};}),createCanvas:make||canvas,
   loadMaterial:(url,o)=>{material.push({url,o});return Promise.resolve({width:1024,height:1536});}});
  const intersect=ratio=>observer.cb([{isIntersecting:ratio>0,intersectionRatio:ratio}]);
  return {hero,root,view,ring,doc,win,section,run,frames,engines,material,images,calls,observers,measures,intersect,get queued(){return queue.length;}};}
@@ -91,6 +91,17 @@ test('(f) stop(): ferma la scena e ripulisce listener, observer e worker',async(
 test('stop() prima che arrivino le immagini: nessuna scena',async()=>{
  let release;const s=setup({loadImage:()=>new Promise(r=>{release=r;})});await flush();s.hero.stop();release({width:1024,height:1536});
  assert.equal(await s.hero.ready,null);assert.equal(s.engines.length,0);assert.equal(s.material.length,0);});
+
+// La prima tela su cui la pagina disegna costa 10-30 ms a freddo: la paga una tela usa e getta in un task a parte, mentre l'immagine arriva, non la costruzione della scena.
+test('una tela usa e getta prepara il disegno in un task a parte, senza toccare la tela visibile',async()=>{
+ const made=[];const make=()=>{const c=canvas(),get=c.getContext;c.used=0;c.getContext=t=>{c.used++;return get(t);};made.push(c);return c;};
+ const s=setup({loadImage:()=>new Promise(()=>{}),make});
+ assert.equal(made.length,0,'niente durante la valutazione del modulo');
+ await flush();
+ assert.equal(made.length,1);assert.equal(made[0].used,1);
+ assert.equal(s.view.width,300,'la tela visibile resta vuota');assert.equal(s.engines.length,0);
+ const t=setup({loadImage:()=>new Promise(()=>{}),make});t.hero.stop();await flush();assert.equal(made.length,1,'dopo stop() non si prepara nulla');
+});
 
 // Il caricamento predefinito non si blocca se decode() non si risolve mai (scheda in background).
 test('decoded: l\'immagine arriva anche se decode() non si risolve mai',async()=>{
