@@ -6,7 +6,7 @@ Data: 2026-10-21. Branch `allineamento`. La landing era in Next.js (commit `342e
 
 - **Parità visiva.** Negli screenshot a 1440x900 e 375x812, in italiano e in inglese, non ci sono differenze visibili: hero, servizi, FAQ, contatto, footer e menu. Restano solo le differenze già decise, elencate sotto. La scena del manubrio coincide con Next: formazione, rilievo, rotazione verso il mouse, varco con l'oro, telefono, riduci movimento, immagini mancanti.
 - **Scroll.** Lo scroll continuo di 10 s su desktop dà 0 long task: soglia rispettata.
-- **TBT.** La soglia è rispettata. Il TBT Lighthouse della landing, mediana di 3 misure, è 7 ms su mobile e 0 su desktop. Nello stesso run la home del principale fa 9 e 0, Next 494 e 91. Prima della correzione la landing era a 40 ms su mobile; l'analisi è più sotto.
+- **TBT.** La soglia è rispettata sulla mediana, ma con un margine stretto. Su mobile la landing fa 7 ms di mediana (le tre misure: 4/7/17), il principale 9 nello stesso run (12/9/7); su desktop 0 contro 0, Next 494 e 91. Una misura della landing (17) supera la mediana del principale. Prima della correzione la landing era a 40 ms su mobile. In più la correzione ha un costo: il task prima del First Contentful Paint è cresciuto (da circa 55-60 a circa 229-237 ms simulati in 2 misure su 3) e l'FCP simulato è salito da circa 1358 a circa 1410 ms. Resta inoltre un residuo di circa 53-67 ms simulati a 1,8 s che non corrisponde a lavoro individuabile. L'analisi è più sotto.
 - **Punteggio e LCP.** Il punteggio Lighthouse mobile è 99 (Next 83, principale 92). L'LCP mobile è 1,95 s (Next 2,93 s, principale 3,08 s).
 
 ## Numeri: prima e dopo, Next e principale
@@ -43,7 +43,7 @@ Prima della correzione Lighthouse mobile vedeva due long task.
 - **Il primo** (55-60 ms simulati, a 0,75 s) è il primo layout della pagina, nel task che valuta il modulo. Cade prima del First Contentful Paint, quindi non entra nel TBT. Non dipende né dalla scia dei servizi, che sui dispositivi a tocco non parte, né dalla scritta del footer.
 - **Il secondo** (88-95 ms simulati, a 1,8 s) è la costruzione della scena, 21 ms in tempo reale. Misurando le singole fasi, quasi tutto il costo era il primo uso di un contesto 2D nella pagina (8-20 ms a freddo): il browser prepara il disegno su canvas solo quando la prima tela viene usata, non quando si crea il contesto. Il resto della costruzione costa circa 5 ms.
 
-La correzione è invisibile (commit `07b7d74`). Mentre l'immagine arriva, una tela usa e getta, fuori dalla pagina, paga quel costo in un task a parte. La tela visibile non viene toccata. La costruzione della scena scende a circa 4 ms e il TBT mobile passa da 40 a 3-7 ms. Il task in più cade prima del First Contentful Paint. Il First Contentful Paint simulato sale da 1358 a circa 1410 ms; l'LCP non cambia.
+La correzione è invisibile (commit `07b7d74`). Mentre l'immagine arriva, una tela usa e getta, fuori dalla pagina, paga quel costo in un task a parte. La tela visibile non viene toccata. La costruzione della scena scende a circa 4 ms e il TBT mobile passa da 40 a 3-7 ms di mediana. Il task in più cade prima del First Contentful Paint e nella traccia finale pesa 229-237 ms simulati in 2 misure su 3 (prima 55-60); il residuo di 53-67 ms a 1,8 s resta senza spiegazione. Il First Contentful Paint simulato sale da 1358 a circa 1410 ms; l'LCP non cambia.
 
 Altre correzioni di questo task, tutte senza effetti visibili (commit `2909423`):
 - se la scena non riesce nemmeno a partire, il suo livello si nasconde e il resto della pagina parte lo stesso;
@@ -118,7 +118,7 @@ Le immagini `manubrio-ceramic{,-640,-1024}.webp` e `manubrio-kintsugi{,-640,-102
 
    Va portato anche il passaggio di build che crea il bundle e il worker del materiale con hash (`WORKERS` in `tools/build.mjs`). Il percorso delle immagini è a template (`manubrio-${kind}${size}.webp`): la build del principale deve pubblicarle tutte e sei.
 9. Se nella stessa pagina del principale un'altra tela disegna prima della scena, il riscaldamento in `hero.js` non costa nulla e si può lasciare.
-10. Dopo il trasloco, rieseguire Lighthouse (3 misure, mobile e desktop) e `scroll-profile`, e confermare TBT e long task. Il margine del TBT mobile sulla home del principale è stretto: 3-7 ms contro 9.
+10. Dopo il trasloco, rieseguire Lighthouse (3 misure, mobile e desktop) e `scroll-profile`, e confermare TBT e long task. Il margine del TBT mobile sulla home del principale è stretto: mediana 7 contro 9 (landing 4/7/17, principale 12/9/7), con una misura della landing sopra la mediana del principale.
 
 ## Comandi
 

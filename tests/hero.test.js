@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {startHero} from '../assets/palestre/hero.js';
 import {DumbbellScene,FORMATION_DONE_MS} from '../assets/palestre/dumbbell-scene.js';
-// Adattato da tests/hero.test.js della landing gemella in kint-studio (25d83c1): senza oggetto 3D su GPU, con il manubrio che gira solo verso il mouse.
+// Adattato dalla landing gemella (commit 25d83c1): senza oggetto 3D su GPU, con il manubrio che gira solo verso il mouse.
 // Un finto contesto 2D: ogni metodo non fa nulla, le letture di pixel restituiscono pixel vuoti.
 const pixels=(...a)=>({data:new Uint8ClampedArray(Math.max(1,(a.at(-2)|0)*(a.at(-1)|0))*4)});
 function context(){const own={getImageData:pixels,createImageData:pixels,getTransform:()=>({a:1}),measureText:()=>({width:5})};
@@ -94,7 +94,7 @@ test('stop() prima che arrivino le immagini: nessuna scena',async()=>{
 
 // La prima tela su cui la pagina disegna costa 10-30 ms a freddo: la paga una tela usa e getta in un task a parte, mentre l'immagine arriva, non la costruzione della scena.
 test('una tela usa e getta prepara il disegno in un task a parte, senza toccare la tela visibile',async()=>{
- const made=[];const make=()=>{const c=canvas(),get=c.getContext;c.used=0;c.getContext=t=>{c.used++;return get(t);};made.push(c);return c;};
+ const made=[];const make=()=>{const c=canvas(),get=c.getContext;c.used=0;c.getContext=t=>{const x=get(t),st=x.setTransform;x.setTransform=(...a)=>{c.used++;return st?st.apply(x,a):undefined;};return x;};made.push(c);return c;};
  const s=setup({loadImage:()=>new Promise(()=>{}),make});
  assert.equal(made.length,0,'niente durante la valutazione del modulo');
  await flush();

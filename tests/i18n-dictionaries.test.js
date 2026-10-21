@@ -9,7 +9,7 @@ const root=fileURLToPath(new URL('..',import.meta.url));
 const ITALIAN=['kint per la','tua palestra.','>Servizi<','Le idee prendono forma','Apri il menu','Quanto costa?','Venti minuti di call','Torna su'];
 for(const l of LANGS.slice(1)){
  test(`${l}: node tools/i18n.mjs --missing ${l} non trova chiavi mancanti`,()=>{assert.deepEqual(JSON.parse(execFileSync(process.execPath,['tools/i18n.mjs','--missing',l],{cwd:root,encoding:'utf8'})),{});});
- test(`${l}: ogni testo dle palestre/index.html e del JavaScript è tradotto`,()=>{assert.deepEqual(audit(l).missing,[]);});
+ test(`${l}: ogni testo di palestre/index.html e del JavaScript è tradotto`,()=>{assert.deepEqual(audit(l).missing,[]);});
  test(`${l}: nessuna traduzione per testi che non esistono più`,()=>{assert.deepEqual(audit(l).orphans,[]);});
  test(`${l}: ogni traduzione conserva gli stessi tag`,()=>{assert.deepEqual(audit(l).badTags,[]);});
  test(`${l}: nessuna traduzione vuota`,()=>{assert.deepEqual(Object.entries(loadDict(l)).filter(([,v])=>!v.trim()).map(([k])=>k),[]);});
