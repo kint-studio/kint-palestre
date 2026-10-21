@@ -1,5 +1,5 @@
 // Build for publishing: copies the site into dist/ and, for the four Human pages (palestre/ and its en/fr/de translations), joins and minifies the stylesheets and bundles landing.js with its modules into one minified file. Names carry a content hash.
-// The Machine pages (ai/) and the assets still loaded on their own (assetsToPublish) are copied unchanged; the material worker, when assets/palestre/ has it, becomes its own hashed bundle.
+// The Machine pages (ai/) and the assets still loaded on their own (assetsToPublish) are copied unchanged; the material worker becomes its own hashed bundle (see linkWorkers).
 // INDEX=1 (or {index:true}) makes the Human pages and robots.txt of dist/ indexable; the sources in the repository stay noindex.
 // The CSP of dist/_headers is recomputed on the inline scripts of dist/. Local development keeps using the sources without a build.
 // Usage: node tools/build.mjs [outDir]
@@ -20,7 +20,7 @@ const PUBLISHED_DIRS=['palestre','ai','en','fr','de'];
 const BUNDLED_PAGES=[...HUMAN_PAGES,'404.html'];
 const ROOT_FILES=['index.html','404.html','_headers','_redirects','robots.txt','sitemap.xml','favicon.ico','apple-touch-icon.png'];
 const BUNDLE_DIR='assets/palestre';
-// Workers bundled on their own; a worker whose file is not in BUNDLE_DIR yet is skipped (the dumbbell scene adds material-worker.js).
+// Workers bundled on their own (see linkWorkers).
 const WORKERS=['material-worker'];
 const walk=d=>readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(join(d,e.name)):[join(d,e.name)]);
 const rel=(base,f)=>relative(base,f).split(sep).join('/');
@@ -47,6 +47,13 @@ export function assetsToPublish(base=root){
  const always=['assets/og-kint.jpg','assets/geist-LICENSE.txt','assets/mode-switch.js','assets/mode-switch.css'];
  return all.filter(f=>always.includes(f)||(code(f)?published.includes(f):named(f,published)||named(f,sources)||templated(f))).sort();
 }
+// The workers are loaded with new URL('./<name>.js?v=…',import.meta.url): each one the bundle names becomes its own bundle with a hashed name, and the URL in the bundle points to it.
+// A worker the bundle does not name is skipped; one it names whose file is missing fails the build.
+export async function linkWorkers(js,{names,dir,exists=existsSync,bundle}){const files=[];
+ for(const name of names){const workerUrl=new RegExp(`\\./${name}\\.js\\?v=[\\w.-]+`,'g');if(!js.match(workerUrl))continue;
+  const file=join(dir,`${name}.js`);if(!exists(file))throw new Error(`build: il bundle richiama il worker ${name}, ma ${file} non esiste`);
+  const code=await bundle(file),workerName=`${name}.${hash(code)}.js`;files.push({name:workerName,code});js=js.replace(workerUrl,`./${workerName}`);}
+ return {js,files};}
 export async function buildSite(out=join(root,'dist'),{index=process.env.INDEX==='1'}={}){
  rmSync(out,{recursive:true,force:true});mkdirSync(out,{recursive:true});
  for(const f of ROOT_FILES)cpSync(join(root,f),join(out,f));
@@ -65,10 +72,9 @@ export async function buildSite(out=join(root,'dist'),{index=process.env.INDEX==
  // JS: landing.js and its module graph become one ES module; the modulepreload hints are no longer needed.
  const entry=first.match(/<script type="module" src="([^"]+)"><\/script>/);
  const bundle=async file=>(await build({entryPoints:[file],bundle:true,format:'esm',minify:true,target:'es2020',write:false,plugins:[stripVersion],legalComments:'none'})).outputFiles[0].text;
- // The workers (material) are loaded with new URL('./<name>.js?v=…',import.meta.url): each becomes its own bundle with a hashed name, and the URL in landing.js points to it.
- let js=await bundle(local(entry[1]));const workers={};
- for(const name of WORKERS.filter(n=>existsSync(join(root,BUNDLE_DIR,`${n}.js`)))){const worker=await bundle(join(root,BUNDLE_DIR,`${name}.js`));const workerName=`${name}.${hash(worker)}.js`;writeFileSync(join(out,BUNDLE_DIR,workerName),worker);workers[name]=`${BUNDLE_DIR}/${workerName}`;
-  const workerUrl=new RegExp(`\\./${name}\\.js\\?v=[\\w.-]+`,'g');if(!js.match(workerUrl))throw new Error(`build: URL del worker ${name} non trovato nel bundle`);js=js.replace(workerUrl,`./${workerName}`);}
+ // The workers (material) become their own hashed bundles, and the URLs in landing.js point to them.
+ const linked=await linkWorkers(await bundle(local(entry[1])),{names:WORKERS,dir:join(root,BUNDLE_DIR),bundle}),js=linked.js,workers={};
+ for(const {name,code} of linked.files){writeFileSync(join(out,BUNDLE_DIR,name),code);workers[name.split('.')[0]]=`${BUNDLE_DIR}/${name}`;}
  const jsName=`${BUNDLE_DIR}/landing.${hash(js)}.js`;writeFileSync(join(out,jsName),js);
  // Every Human page gets the same bundles, with root-absolute paths.
  for(const p of BUNDLED_PAGES){let page=readFileSync(join(out,p),'utf8');
@@ -85,4 +91,4 @@ export async function buildSite(out=join(root,'dist'),{index=process.env.INDEX==
  writeFileSync(join(out,'_redirects'),dropNote(readFileSync(join(out,'_redirects'),'utf8')));
  return {css:cssName,js:jsName,worker:workers['material-worker'],workers,stylesheets:links.length,cssBytes:css.length,jsBytes:js.length,pages:HUMAN_PAGES};
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){const r=await buildSite(process.argv[2]?resolve(process.argv[2]):undefined);console.log(`dist/: ${r.stylesheets} fogli di stile -> ${r.css} (${r.cssBytes} B), landing -> ${r.js} (${r.jsBytes} B), worker -> ${Object.values(r.workers).join(', ')}`);}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){const r=await buildSite(process.argv[2]?resolve(process.argv[2]):undefined);console.log(`dist/: ${r.stylesheets} fogli di stile -> ${r.css} (${r.cssBytes} B), landing -> ${r.js} (${r.jsBytes} B)${Object.values(r.workers).map(w=>`, worker -> ${w}`).join('')}`);}

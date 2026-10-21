@@ -1,0 +1,107 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {startHero} from '../assets/palestre/hero.js';
+import {DumbbellScene,FORMATION_DONE_MS} from '../assets/palestre/dumbbell-scene.js';
+// Adattato da tests/hero.test.js della ristoranti (25d83c1): senza forchetta 3D, con il manubrio che gira solo verso il mouse.
+// Un finto contesto 2D: ogni metodo non fa nulla, le letture di pixel restituiscono pixel vuoti.
+const pixels=(...a)=>({data:new Uint8ClampedArray(Math.max(1,(a.at(-2)|0)*(a.at(-1)|0))*4)});
+function context(){const own={getImageData:pixels,createImageData:pixels,getTransform:()=>({a:1}),measureText:()=>({width:5})};
+ return new Proxy(own,{get:(t,k)=>k in t?t[k]:()=>({addColorStop(){}}),set:(t,k,v)=>{t[k]=v;return true;}});}
+const canvas=()=>{const ctx=context();return {width:300,height:150,hidden:false,style:{},getContext:type=>type==='2d'?ctx:null};};
+const events=()=>{const map=new Map();return {map,addEventListener:(t,f)=>map.set(t,[...(map.get(t)||[]),f]),removeEventListener:(t,f)=>map.set(t,(map.get(t)||[]).filter(g=>g!==f)),emit:(t,e)=>(map.get(t)||[]).forEach(f=>f(e)),count:()=>[...map.values()].reduce((n,l)=>n+l.length,0)};};
+const flush=()=>new Promise(r=>setTimeout(r,0));
+function setup({reduced=false,touch=false,hidden=false,loadImage,size={width:1440,height:900}}={}){
+ const view=canvas(),ring={style:{}},section=events();
+ const root={...events(),parentElement:section,querySelector:s=>s==='canvas'?view:s==='.kf-cursor'?ring:null,
+  getBoundingClientRect:()=>{measures.n++;return {left:0,top:0,right:size.width,bottom:size.height,width:size.width,height:size.height};}};
+ const measures={n:0},doc={...events(),hidden},win=events(),observers={io:[],ro:[]};
+ let observer;const IO=class{constructor(cb){this.cb=cb;this.on=true;observer=this;observers.io.push(this);}observe(){}disconnect(){this.on=false;}};
+ // Il ResizeObserver vero riferisce la prima misura dopo il layout del browser: qui in un microtask.
+ const RO=class{constructor(cb){this.cb=cb;this.on=true;observers.ro.push(this);}observe(el){queueMicrotask(()=>{if(this.on)this.cb([{target:el,contentRect:{width:size.width,height:size.height}}]);});}disconnect(){this.on=false;}};
+ let queue=[],clock=0;const raf=cb=>{queue.push(cb);};
+ // un secondo simulato: 60 fotogrammi da 16,7 ms
+ const run=(frames=60)=>{for(let i=0;i<frames;i++){clock+=1000/60;const q=queue;queue=[];q.forEach(cb=>cb(clock));}};
+ const frames={n:0},engines=[],calls={setPointer:0,addPointer:0};
+ const Engine=class extends DumbbellScene{constructor(o){super(o);engines.push(this);}frame(...a){frames.n++;return super.frame(...a);}
+  setPointer(...a){calls.setPointer++;return super.setPointer(...a);}addPointer(...a){calls.addPointer++;return super.addPointer(...a);}};
+ const material=[],images=[];
+ const hero=startHero(root,{
+  matchMedia:q=>({matches:(q.includes('reduce')&&reduced)||(q.includes('hover: none')&&touch)}),
+  IntersectionObserver:IO,ResizeObserver:RO,document:doc,window:win,dpr:1,raf,now:()=>clock,Engine,
+  loadImage:loadImage||(async url=>{images.push(url);return {width:1024,height:1536};}),createCanvas:canvas,
+  loadMaterial:(url,o)=>{material.push({url,o});return Promise.resolve({width:1024,height:1536});}});
+ const intersect=ratio=>observer.cb([{isIntersecting:ratio>0,intersectionRatio:ratio}]);
+ return {hero,root,view,ring,doc,win,section,run,frames,engines,material,images,calls,observers,measures,intersect,get queued(){return queue.length;}};}
+const mouse=(x,y,pointerType='mouse')=>({clientX:x,clientY:y,pointerType,target:{}});
+
+test('(a) hero fuori schermo: nessun engine.frame in 1 s',async()=>{
+ const s=setup();await s.hero.ready;s.intersect(0);s.run();
+ assert.equal(s.engines.length,1);assert.equal(s.frames.n,0);assert.equal(s.queued,0,'nessun rAF in coda');});
+test('(b) scheda nascosta: nessun engine.frame in 1 s',async()=>{
+ const s=setup({hidden:true});await s.hero.ready;s.intersect(1);s.run();
+ assert.equal(s.frames.n,0);assert.equal(s.queued,0);
+ // tornando visibile la scena riparte, e si ferma di nuovo uscendo dallo schermo
+ s.doc.hidden=false;s.doc.emit('visibilitychange');s.run();assert.ok(s.frames.n>0);
+ s.intersect(0);const n=s.frames.n;s.run();assert.equal(s.frames.n,n);});
+test('(c) riduci movimento: formazione completa all\'avvio e niente rotazione',async()=>{
+ const s=setup({reduced:true});const engine=await s.hero.ready;s.intersect(.5);
+ assert.equal(engine.started,true);assert.equal(engine.elapsed,FORMATION_DONE_MS);
+ s.run(2);assert.equal(engine.done,true);
+ s.win.emit('pointermove',mouse(1400,100));s.run(5);assert.equal(s.calls.setPointer,0);assert.deepEqual(engine.targetPose,{yaw:0,pitch:0});});
+test('(c2) senza riduci movimento la formazione dura FORMATION_DONE_MS',async()=>{
+ const s=setup();const engine=await s.hero.ready;s.intersect(.2);assert.equal(engine.started,false,'sotto il 35% non parte');
+ s.intersect(.5);assert.equal(engine.elapsed,0);s.run(60);assert.equal(engine.done,false);s.run(120);assert.equal(engine.done,true);});
+test('desktop: carica la sagoma e il materiale nella misura che basta, e il manubrio gira verso il mouse',async()=>{
+ // 1440x900 a dpr 1: rettangolo largo 639,5 px (vedi dumbbell-scene.test.js), quindi le immagini da 1024
+ const s=setup();const engine=await s.hero.ready;
+ assert.deepEqual(s.images,['/assets/palestre/manubrio-ceramic-1024.webp']);
+ assert.equal(s.material.length,1);assert.equal(s.material[0].url,'/assets/palestre/manubrio-kintsugi-1024.webp');
+ assert.equal(s.material[0].o.satin,true,'argento satinato sotto il varco');
+ assert.match(String(s.material[0].o.workerUrl),/\/assets\/palestre\/material-worker\.js\?v=[\w.-]+$/);
+ await flush();assert.ok(engine.tech,'il materiale arriva alla scena');
+ s.intersect(1);s.run(200);assert.equal(engine.done,true);
+ s.win.emit('pointermove',mouse(1400,100));s.run(30);
+ assert.ok(engine.pose.yaw>.1&&engine.pose.pitch<-.05,`posa ${JSON.stringify(engine.pose)}`);
+ assert.ok(s.calls.addPointer>0);assert.equal(s.ring.style.opacity,'1');assert.equal(s.view.hidden,false);});
+test('l\'hero non si misura mentre il modulo si valuta',()=>{
+ const s=setup();assert.equal(s.measures.n,0,'nessun getBoundingClientRect sincrono');});
+test('(d) telefono: il dito apre il varco ma non gira il manubrio, e il cursore automatico apre solo il varco',async()=>{
+ const s=setup({touch:true});const engine=await s.hero.ready;
+ assert.deepEqual(s.images,['/assets/palestre/manubrio-ceramic-1024.webp']);
+ s.intersect(1);s.run(200);assert.equal(engine.done,true);
+ const before=s.calls.addPointer;s.win.emit('pointermove',mouse(700,400,'touch'));
+ assert.equal(s.calls.setPointer,0,'niente setPointer su touch');assert.ok(s.calls.addPointer>before,'il varco si apre');
+ assert.equal(s.ring.style.opacity,'0');
+ // dopo l'attesa il cursore automatico percorre l'oggetto: varco sì, rotazione no
+ const idle=s.calls.addPointer;s.run(400);
+ assert.ok(s.calls.addPointer>idle);assert.equal(s.calls.setPointer,0);
+ assert.deepEqual(engine.targetPose,{yaw:0,pitch:0});assert.deepEqual(engine.pose,{yaw:0,pitch:0});});
+test('(e) immagine che non si carica: startHero non lancia e la scena sparisce',async()=>{
+ let s;assert.doesNotThrow(()=>{s=setup({loadImage:()=>Promise.reject(new Error('404'))});});
+ assert.equal(await s.hero.ready,null);assert.equal(s.engines.length,0);assert.equal(s.view.hidden,true);assert.equal(s.root.hidden,true,'resta solo il fondo della sezione');
+ s.run();assert.equal(s.frames.n,0);});
+test('(f) stop(): ferma la scena e ripulisce listener, observer e worker',async()=>{
+ const s=setup();await s.hero.ready;s.intersect(1);s.run(5);
+ assert.ok(s.win.count()>0&&s.doc.count()>0&&s.section.count()>0);
+ const signal=s.material[0].o.signal;assert.equal(signal.aborted,false);
+ s.hero.stop();const n=s.frames.n;s.run();assert.equal(s.frames.n,n);
+ assert.equal(s.win.count(),0,'listener su window');assert.equal(s.doc.count(),0,'listener su document');assert.equal(s.section.count(),0,'listener sulla sezione');
+ assert.ok(s.observers.io.every(o=>!o.on)&&s.observers.ro.every(o=>!o.on),'observer scollegati');
+ assert.equal(signal.aborted,true,'il worker del materiale si ferma');});
+test('stop() prima che arrivino le immagini: nessuna scena',async()=>{
+ let release;const s=setup({loadImage:()=>new Promise(r=>{release=r;})});await flush();s.hero.stop();release({width:1024,height:1536});
+ assert.equal(await s.hero.ready,null);assert.equal(s.engines.length,0);assert.equal(s.material.length,0);});
+
+// Il caricamento predefinito non si blocca se decode() non si risolve mai (scheda in background).
+test('decoded: l\'immagine arriva anche se decode() non si risolve mai',async()=>{
+ const {decoded}=await import('../assets/palestre/hero.js');
+ const saved=globalThis.Image;
+ globalThis.Image=class{decode(){return new Promise(()=>{});}set src(v){this._src=v;setTimeout(()=>this.onload(),0);}};
+ try{const image=await decoded('/x.webp');assert.equal(image._src,'/x.webp');}finally{globalThis.Image=saved;}
+});
+test('decoded: un errore di caricamento rifiuta',async()=>{
+ const {decoded}=await import('../assets/palestre/hero.js');
+ const saved=globalThis.Image;
+ globalThis.Image=class{decode(){return Promise.resolve();}set src(v){setTimeout(()=>this.onerror(new Error('404')),0);}};
+ try{await assert.rejects(decoded('/x.webp'));}finally{globalThis.Image=saved;}
+});

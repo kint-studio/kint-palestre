@@ -4,7 +4,7 @@ import {readFileSync,existsSync,mkdtempSync,rmSync,readdirSync} from 'node:fs';
 import {join,relative,sep} from 'node:path';
 import {tmpdir} from 'node:os';
 import {execFileSync} from 'node:child_process';
-import {buildSite,assetsToPublish,root} from '../tools/build.mjs';
+import {buildSite,assetsToPublish,linkWorkers,root} from '../tools/build.mjs';
 import {inlineScriptHashes} from '../tools/export.mjs';
 // Test sul risultato della build (tools/build.mjs), come tests/build.test.js del sito principale: ogni test costruisce in una cartella temporanea.
 const HUMAN=['palestre/index.html','en/palestre/index.html','fr/palestre/index.html','de/palestre/index.html'];
@@ -12,9 +12,8 @@ const MACHINE=['ai/palestre/index.html','en/ai/palestre/index.html','fr/ai/pales
 const walk=d=>readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(join(d,e.name)):[join(d,e.name)]);
 const withBuild=async(fn,opts)=>{const out=mkdtempSync(join(tmpdir(),'kint-palestre-build-'));try{const r=await buildSite(out,opts);await fn(out,r);}finally{rmSync(out,{recursive:true,force:true});}};
 const read=(out,f)=>readFileSync(join(out,f),'utf8');
-// La scena del manubrio (hero.js e material-worker.js) arriva dopo lo scheletro: finché manca, i test che la riguardano sono saltati.
-const SCENE=existsSync(join(root,'assets/palestre/hero.js'))?false:'scena del manubrio non ancora presente';
-const WORKER=existsSync(join(root,'assets/palestre/material-worker.js'))?false:'worker del materiale non ancora presente';
+
+
 test('build: gli 8 indirizzi, la radice, 404, _headers e _redirects esistono',()=>withBuild(out=>{
  for(const f of [...HUMAN,...MACHINE,'index.html','404.html','_headers','_redirects','robots.txt','sitemap.xml','favicon.ico','apple-touch-icon.png','assets/og-kint.jpg'])assert.ok(existsSync(join(out,f)),f);
 }));
@@ -32,21 +31,32 @@ test('build: le pagine Machine e gli asset condivisi sono copiati invariati',()=
  for(const f of ['assets/machine.css','assets/mode-switch.js','assets/mode-switch.css','assets/geist-sub.woff2'])assert.deepEqual(readFileSync(join(out,f)),readFileSync(join(root,f)),f);
  const assets=readdirSync(join(out,'assets/palestre'));
  for(const f of ['landing.js','hero.js','material.js','material-worker.js'])assert.ok(!assets.includes(f),`${f} è già nel bundle`);
- if(!SCENE)assert.ok(assets.some(f=>f.endsWith('.webp')));
+ assert.ok(assets.some(f=>f.endsWith('.webp')));
  const list=assetsToPublish(root);assert.ok(list.includes('assets/mode-switch.js')&&!list.includes('assets/palestre/landing.js'));
 }));
-test('build: ogni immagine del manubrio, anche quella con percorso a template, è nel dist',{skip:SCENE},()=>withBuild((out,r)=>{
- const bundle=read(out,r.js);assert.ok(bundle.includes('manubrio-kintsugi'));
+test('build: ogni immagine del manubrio, anche quella con percorso a template, è nel dist',()=>withBuild((out,r)=>{
+ const bundle=read(out,r.js);assert.match(bundle,/\/assets\/palestre\/manubrio-\$\{/,'percorso a template delle immagini nel bundle');
  for(const f of readdirSync(join(root,'assets/palestre')).filter(f=>f.endsWith('.webp')))assert.ok(existsSync(join(out,'assets/palestre',f)),f);
  for(const m of bundle.matchAll(/\/assets\/[\w./-]+\.(?:webp|woff2|jpg)/g))assert.ok(existsSync(join(out,m[0])),m[0]);
 }));
-test('build: il worker del materiale è un bundle a parte con hash e il bundle lo richiama per nome',{skip:WORKER},()=>withBuild((out,r)=>{
+test('build: il worker del materiale è un bundle a parte con hash e il bundle lo richiama per nome',()=>withBuild((out,r)=>{
  const bundle=read(out,r.js);
  for(const name of ['material-worker']){const m=bundle.match(new RegExp('new URL\\("\\./('+name+'\\.[0-9a-f]{10}\\.js)"'));
   assert.ok(m,`URL del worker ${name} con hash nel bundle`);assert.ok(existsSync(join(out,'assets/palestre',m[1])),m[1]);
   assert.doesNotMatch(read(out,'assets/palestre/'+m[1]),/import[^(]/,`${m[1]}: nessun import da risolvere`);
   assert.ok(!existsSync(join(out,`assets/palestre/${name}.js`)));assert.doesNotMatch(bundle,new RegExp(name+'\\.js'));}
 }));
+// Un worker si salta solo se il bundle non lo richiama; se lo richiama e il file non c'è, la build fallisce.
+test('build: linkWorkers collega i worker richiamati, salta gli altri e fallisce se un file manca',async()=>{
+ const bundle=async f=>`worker(${f.split(/[\\/]/).pop()})`;
+ const none=await linkWorkers('console.log(1)',{names:['material-worker'],dir:'x',exists:()=>true,bundle});
+ assert.equal(none.js,'console.log(1)');assert.deepEqual(none.files,[]);
+ const js='new URL("./material-worker.js?v=p3-1",import.meta.url)';
+ const one=await linkWorkers(js,{names:['material-worker'],dir:'x',exists:()=>true,bundle});
+ assert.equal(one.files.length,1);assert.match(one.files[0].name,/^material-worker\.[0-9a-f]{10}\.js$/);assert.equal(one.files[0].code,'worker(material-worker.js)');
+ assert.equal(one.js,`new URL("./${one.files[0].name}",import.meta.url)`);
+ await assert.rejects(linkWorkers(js,{names:['material-worker'],dir:'x',exists:()=>false,bundle}),/material-worker/);
+});
 test('build: ogni hash della CSP di _headers corrisponde a uno script inline del dist e viceversa',()=>withBuild(out=>{
  const hdr=read(out,'_headers').split(/\r?\n/),i=hdr.findIndex(l=>l==='/*');assert.ok(i>=0,'regola /* mancante');
  const csp=hdr.slice(i+1).find(l=>/^\s*Content-Security-Policy:/.test(l));assert.ok(csp,'CSP mancante');
